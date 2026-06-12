@@ -1,0 +1,9 @@
+# Fictional example ontology used by the tests (real tables are personal data
+# and live in the user's volume at <root>/_ontology.tsv, never in this repo).
+# Columns: code  parent  latin  greek  symbol  [deity]
+a		Aqua	Hydor	α
+t		Terra	Ge	γ	Gaia
+am	a	Mare	Thalassa	θ	Poseidon
+af	a	Flumen	Potamos	π
+an	a	Fons	Pege	κ
+tm	t	Mons	Oros	ο

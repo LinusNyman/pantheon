@@ -1,0 +1,13 @@
+# OS noise
+.DS_Store
+
+# Local working context — personal, never published (README.md and LICENSE
+# are the only repo-root documents that belong in the public repo).
+/CLAUDE.md
+/SPEC.md
+/asbop__/
+/asbop_docs/
+
+# A user's ontology table is personal data; it lives in the volume root
+# (<root>/_ontology.tsv), never in this repository.
+_ontology.tsv
