@@ -133,6 +133,28 @@ func ParseFile(basename, workingPrefix string) (FileEntry, error) {
 	return FileEntry{}, ErrPrefixMismatch
 }
 
+// SplitCode decomposes a full code into its parent code and the child's own
+// single-character discriminator value: "auk" → ("au", "k"); a top-level code
+// "a" → ("", "a"). It is the inverse of concatenation for the Letter subset —
+// the only decomposition a bare, context-free code can express unambiguously
+// (multi-character Word/Number discriminators need the parent context to split,
+// SPEC §2; decision log #1 admits the single-char subset for exactly this
+// "bare code" auto-placement case). Every rune must be a portable-core name
+// character [a-z0-9]; åäö and others are rejected so codes created from a typed
+// string stay portable. Returns ErrEmpty for "" and ErrCharset otherwise.
+func SplitCode(code string) (parent, own string, err error) {
+	if code == "" {
+		return "", "", ErrEmpty
+	}
+	for _, r := range code {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
+			return "", "", ErrCharset
+		}
+	}
+	runes := []rune(code)
+	return string(runes[:len(runes)-1]), string(runes[len(runes)-1]), nil
+}
+
 // classify infers a Discriminator from a discriminator segment alone
 // (SPEC §4): all-digits → Number, single rune → Letter, multi-char → Word.
 // The segment is assumed non-empty and charset-checked by the caller.

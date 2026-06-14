@@ -251,3 +251,33 @@ func TestValidateSiblings(t *testing.T) {
 		t.Errorf("padded/letter collision on value: err = %v", err)
 	}
 }
+
+func TestSplitCode(t *testing.T) {
+	cases := []struct {
+		code, parent, own string
+		err               error
+	}{
+		{"a", "", "a", nil},
+		{"au", "a", "u", nil},
+		{"auk", "au", "k", nil},
+		{"ass", "as", "s", nil},
+		{"a1", "a", "1", nil}, // digits admitted (portable core widening)
+		{"", "", "", ErrEmpty},
+		{"A", "", "", ErrCharset},  // uppercase rejected
+		{"a_", "", "", ErrCharset}, // separators rejected
+		{"aå", "", "", ErrCharset}, // åäö rejected for created codes
+	}
+	for _, c := range cases {
+		p, o, err := SplitCode(c.code)
+		if !errors.Is(err, c.err) {
+			t.Errorf("SplitCode(%q) err = %v, want %v", c.code, err, c.err)
+			continue
+		}
+		if c.err != nil {
+			continue
+		}
+		if p != c.parent || o != c.own {
+			t.Errorf("SplitCode(%q) = (%q, %q), want (%q, %q)", c.code, p, o, c.parent, c.own)
+		}
+	}
+}

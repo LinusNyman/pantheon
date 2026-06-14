@@ -19,6 +19,19 @@ func navTree(t *testing.T) *Tree {
 	return tr
 }
 
+func TestNodeDisplay(t *testing.T) {
+	cases := map[string]string{
+		"kth_industrial_society": "kth industrial society",
+		"bibliotheca":            "bibliotheca",
+		"":                       "",
+	}
+	for name, want := range cases {
+		if got := (&Node{Name: name}).Display(); got != want {
+			t.Errorf("Display(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestNavigate(t *testing.T) {
 	tr := navTree(t)
 	tests := []struct {

@@ -8,6 +8,7 @@ package tree
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/LinusNyman/pantheon/prefix"
 )
@@ -33,6 +34,15 @@ type Node struct {
 	// into repos (their interior follows ecosystem conventions, not the
 	// grammar) unless ScanOpts.DescendRepos is set.
 	IsRepo bool
+}
+
+// Display returns the node's descriptive name in human-readable form, with the
+// on-disk underscores rendered as spaces ("kth_industrial_society" → "kth
+// industrial society"). Names are frozen with underscores on disk (SPEC §7);
+// every consumer that renders a node wants the same presentation, so it lives
+// on the node rather than being re-derived per tool.
+func (n *Node) Display() string {
+	return strings.ReplaceAll(n.Name, "_", " ")
 }
 
 // MetaDir returns the path of the node's meta directory <path>/<code>__,
