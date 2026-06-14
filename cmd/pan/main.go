@@ -19,7 +19,7 @@ import (
 	"github.com/LinusNyman/pantheon/tree"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 const usage = `pan — the pantheon spine
 
@@ -312,15 +312,10 @@ func cmdMk(args []string) error {
 		return err
 	}
 
-	var discs []prefix.Discriminator // existing siblings, for uniqueness
-	for _, c := range parent.Children {
-		if !c.Mismatched {
-			discs = append(discs, c.Disc)
-		}
-	}
-
 	// --range: bulk numbered children (absorbs the old `mudir` shell function).
 	// A descriptive name is optional here (nameless lectures: assc_1, assc_2).
+	// Each CreateChild registers the new sibling, so the next iteration's
+	// uniqueness check sees it.
 	if *rangeFlag != "" {
 		lo, hi, err := parseRange(*rangeFlag)
 		if err != nil {
@@ -335,15 +330,11 @@ func cmdMk(args []string) error {
 		for n := lo; n <= hi; n++ {
 			v := strconv.Itoa(n)
 			d := prefix.Discriminator{Kind: prefix.Number, Value: v, Padded: v}
-			if err := prefix.ValidateSiblings(append(discs, d)); err != nil {
+			node, err := t.CreateChild(parentCode, d, name, *meta)
+			if err != nil {
 				return fmt.Errorf("range stopped at %d: %w", n, err)
 			}
-			path, err := mkChild(parent, d, name, *meta)
-			if err != nil {
-				return err
-			}
-			fmt.Println(path)
-			discs = append(discs, d)
+			fmt.Println(node.Path)
 		}
 		return nil
 	}
@@ -357,16 +348,19 @@ func cmdMk(args []string) error {
 		return fmt.Errorf("name %q: %w", rawName, err)
 	}
 
-	var taken []string
-	for _, d := range discs {
-		taken = append(taken, d.Value)
-	}
-
+	// Allocate the discriminator; CreateChild validates sibling-uniqueness on
+	// creation, so no separate ValidateSiblings call is needed here.
 	d := prefix.Discriminator{}
 	switch {
 	case *disc != "":
 		d = classifyArg(*disc)
 	case *kind == "letter":
+		var taken []string
+		for _, c := range parent.Children {
+			if !c.Mismatched {
+				taken = append(taken, c.Disc.Value)
+			}
+		}
 		v, err := prefix.NextLetter(name, taken, opts)
 		if err != nil {
 			return err
@@ -374,9 +368,9 @@ func cmdMk(args []string) error {
 		d = prefix.Discriminator{Kind: prefix.Letter, Value: v, Padded: v}
 	case *kind == "number":
 		next := 1
-		for _, ex := range discs {
-			if ex.Kind == prefix.Number {
-				if v, err := strconv.Atoi(ex.Value); err == nil && v >= next {
+		for _, c := range parent.Children {
+			if c.Disc.Kind == prefix.Number {
+				if v, err := strconv.Atoi(c.Disc.Value); err == nil && v >= next {
 					next = v + 1
 				}
 			}
@@ -388,38 +382,16 @@ func cmdMk(args []string) error {
 	default:
 		return fmt.Errorf("unknown --kind %q", *kind)
 	}
-	if err := prefix.ValidateSiblings(append(discs, d)); err != nil {
-		return err
-	}
 
-	path, err := mkChild(parent, d, name, *meta)
+	node, err := t.CreateChild(parentCode, d, name, *meta)
 	if err != nil {
 		return err
 	}
-	fmt.Println(path)
+	fmt.Println(node.Path)
 	if *meta {
-		fmt.Println(filepath.Join(path, parent.Code+d.Value+"__"))
+		fmt.Println(node.MetaDir())
 	}
 	return nil
-}
-
-// mkChild creates one conforming child directory (and optionally its meta dir)
-// under parent, returning the new directory's path. It refuses to overwrite.
-func mkChild(parent *tree.Node, d prefix.Discriminator, name string, meta bool) (string, error) {
-	entry := prefix.DirEntry{Inherited: parent.Code, Disc: d, Name: name}
-	path := filepath.Join(parent.Path, prefix.FormatDir(entry))
-	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("%s already exists", path)
-	}
-	if err := os.Mkdir(path, 0o755); err != nil {
-		return "", err
-	}
-	if meta {
-		if err := os.Mkdir(filepath.Join(path, entry.FullPrefix()+"__"), 0o755); err != nil {
-			return "", err
-		}
-	}
-	return path, nil
 }
 
 // parseRange parses "A-B" into two ascending integers.
