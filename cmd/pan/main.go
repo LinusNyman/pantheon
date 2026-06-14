@@ -19,16 +19,19 @@ import (
 	"github.com/LinusNyman/pantheon/tree"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 const usage = `pan — the pantheon spine
 
 Usage:
   pan tree [code]                      render the (sub)tree
+  pan cd <keys>                        path of the node reached by a typeahead jump
   pan resolve <code|path>              code → path, or path → code
   pan doctor [code] [--json] [--files] list grammar deviations (exit 1 if any)
   pan mk <parent-code> <name>          create a conforming child dir
-         [--kind letter|number|word] [--disc x] [--meta] [--swedish]
+         [--kind letter|number|word] [--disc x] [--range A-B] [--meta] [--swedish]
+  pan mv <code>                        rename a node, cascading to its whole subtree
+         [--disc x] [--name n] [--reroot] [--dry-run]
   pan onto [code]                      the ontology table / one domain's lineage
   pan version
 
@@ -46,12 +49,16 @@ func main() {
 	switch cmd {
 	case "tree":
 		err = cmdTree(args)
+	case "cd":
+		err = cmdCd(args)
 	case "resolve":
 		err = cmdResolve(args)
 	case "doctor":
 		err = cmdDoctor(args)
 	case "mk":
 		err = cmdMk(args)
+	case "mv":
+		err = cmdMv(args)
 	case "onto":
 		err = cmdOnto(args)
 	case "version":
@@ -277,18 +284,15 @@ func cmdMk(args []string) error {
 	fs, root := newFlags("mk")
 	kind := fs.String("kind", "letter", "discriminator kind: letter|number|word")
 	disc := fs.String("disc", "", "explicit discriminator value")
+	rangeFlag := fs.String("range", "", "create numbered children A-B (e.g. 1-12); name optional")
 	meta := fs.Bool("meta", false, "also create the <code>__ meta dir")
 	swedish := fs.Bool("swedish", false, "allow åäö in names")
 	pos := parseFlexible(fs, args)
-	parentCode, rawName := argN(pos, 0), argN(pos, 1)
-	if parentCode == "" || rawName == "" {
-		return fmt.Errorf("usage: pan mk <parent-code> <name>")
-	}
 	opts := prefix.Opts{AllowSwedish: *swedish}
 
-	name, err := prefix.Sanitize(rawName, opts)
-	if err != nil {
-		return fmt.Errorf("name %q: %w", rawName, err)
+	parentCode := argN(pos, 0)
+	if parentCode == "" {
+		return fmt.Errorf("usage: pan mk <parent-code> <name>  (or --range A-B with optional name)")
 	}
 
 	t, err := scan(resolveRoot(*root), tree.ScanOpts{})
@@ -300,13 +304,54 @@ func cmdMk(args []string) error {
 		return err
 	}
 
-	var taken []string
-	var discs []prefix.Discriminator
+	var discs []prefix.Discriminator // existing siblings, for uniqueness
 	for _, c := range parent.Children {
 		if !c.Mismatched {
-			taken = append(taken, c.Disc.Value)
 			discs = append(discs, c.Disc)
 		}
+	}
+
+	// --range: bulk numbered children (absorbs the old `mudir` shell function).
+	// A descriptive name is optional here (nameless lectures: assc_1, assc_2).
+	if *rangeFlag != "" {
+		lo, hi, err := parseRange(*rangeFlag)
+		if err != nil {
+			return err
+		}
+		name := ""
+		if raw := argN(pos, 1); raw != "" {
+			if name, err = prefix.Sanitize(raw, opts); err != nil {
+				return fmt.Errorf("name %q: %w", raw, err)
+			}
+		}
+		for n := lo; n <= hi; n++ {
+			v := strconv.Itoa(n)
+			d := prefix.Discriminator{Kind: prefix.Number, Value: v, Padded: v}
+			if err := prefix.ValidateSiblings(append(discs, d)); err != nil {
+				return fmt.Errorf("range stopped at %d: %w", n, err)
+			}
+			path, err := mkChild(parent, d, name, *meta)
+			if err != nil {
+				return err
+			}
+			fmt.Println(path)
+			discs = append(discs, d)
+		}
+		return nil
+	}
+
+	rawName := argN(pos, 1)
+	if rawName == "" {
+		return fmt.Errorf("usage: pan mk <parent-code> <name>")
+	}
+	name, err := prefix.Sanitize(rawName, opts)
+	if err != nil {
+		return fmt.Errorf("name %q: %w", rawName, err)
+	}
+
+	var taken []string
+	for _, d := range discs {
+		taken = append(taken, d.Value)
 	}
 
 	d := prefix.Discriminator{}
@@ -339,23 +384,54 @@ func cmdMk(args []string) error {
 		return err
 	}
 
-	entry := prefix.DirEntry{Inherited: parent.Code, Disc: d, Name: name}
-	path := filepath.Join(parent.Path, prefix.FormatDir(entry))
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists", path)
-	}
-	if err := os.Mkdir(path, 0o755); err != nil {
+	path, err := mkChild(parent, d, name, *meta)
+	if err != nil {
 		return err
 	}
 	fmt.Println(path)
 	if *meta {
-		metaDir := filepath.Join(path, entry.FullPrefix()+"__")
-		if err := os.Mkdir(metaDir, 0o755); err != nil {
-			return err
-		}
-		fmt.Println(metaDir)
+		fmt.Println(filepath.Join(path, parent.Code+d.Value+"__"))
 	}
 	return nil
+}
+
+// mkChild creates one conforming child directory (and optionally its meta dir)
+// under parent, returning the new directory's path. It refuses to overwrite.
+func mkChild(parent *tree.Node, d prefix.Discriminator, name string, meta bool) (string, error) {
+	entry := prefix.DirEntry{Inherited: parent.Code, Disc: d, Name: name}
+	path := filepath.Join(parent.Path, prefix.FormatDir(entry))
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("%s already exists", path)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return "", err
+	}
+	if meta {
+		if err := os.Mkdir(filepath.Join(path, entry.FullPrefix()+"__"), 0o755); err != nil {
+			return "", err
+		}
+	}
+	return path, nil
+}
+
+// parseRange parses "A-B" into two ascending integers.
+func parseRange(s string) (int, int, error) {
+	lo, hi, ok := strings.Cut(s, "-")
+	if !ok {
+		return 0, 0, fmt.Errorf("range %q must be A-B", s)
+	}
+	a, err := strconv.Atoi(strings.TrimSpace(lo))
+	if err != nil {
+		return 0, 0, fmt.Errorf("range start %q: %w", lo, err)
+	}
+	b, err := strconv.Atoi(strings.TrimSpace(hi))
+	if err != nil {
+		return 0, 0, fmt.Errorf("range end %q: %w", hi, err)
+	}
+	if a > b {
+		return 0, 0, fmt.Errorf("range %q: start must be ≤ end", s)
+	}
+	return a, b, nil
 }
 
 // classifyArg builds a Discriminator from an explicit --disc value, keeping
@@ -380,6 +456,106 @@ func classifyArg(s string) prefix.Discriminator {
 	default:
 		return prefix.Discriminator{Kind: prefix.Word, Value: s, Padded: s}
 	}
+}
+
+// cmdCd resolves a typeahead key sequence to a node and prints its absolute
+// path to stdout (for `cd "$(pan cd asb)"`); the breadcrumb goes to stderr so
+// it stays visible without polluting the path. Replaces the f/o/p shell
+// functions — point a shell wrapper at any volume via --root.
+func cmdCd(args []string) error {
+	fs, root := newFlags("cd")
+	rootLabel := fs.String("label", "", "breadcrumb root label (default: the root dir name)")
+	pos := parseFlexible(fs, args)
+	keys := argN(pos, 0)
+	if keys == "" {
+		return fmt.Errorf("usage: pan cd <keys>")
+	}
+	resolved := resolveRoot(*root)
+	t, err := scan(resolved, tree.ScanOpts{})
+	if err != nil {
+		return err
+	}
+	chain := t.Navigate(keys)
+	if len(chain) == 0 {
+		return fmt.Errorf("no node reached for %q under %s", keys, t.RootPath)
+	}
+	label := *rootLabel
+	if label == "" {
+		label = filepath.Base(resolved)
+	}
+	fmt.Fprintln(os.Stderr, tree.Breadcrumb(label, chain))
+	fmt.Println(chain[len(chain)-1].Path)
+	return nil
+}
+
+// cmdMv renames a node, cascading the code change through its whole subtree.
+// The prefix-aware, tested replacement for the old `renp` shell function.
+func cmdMv(args []string) error {
+	fs, root := newFlags("mv")
+	disc := fs.String("disc", "", "new discriminator value")
+	name := fs.String("name", "", "new descriptive name")
+	reroot := fs.Bool("reroot", false, "set inherited prefix to the real parent's code (fixes a PrefixMismatch)")
+	dryRun := fs.Bool("dry-run", false, "print the plan without applying it")
+	swedish := fs.Bool("swedish", false, "allow åäö in the new name")
+	pos := parseFlexible(fs, args)
+	code := argN(pos, 0)
+	if code == "" {
+		return fmt.Errorf("usage: pan mv <code> [--disc x] [--name n] [--reroot]")
+	}
+	nameSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "name" {
+			nameSet = true
+		}
+	})
+	if *disc == "" && !nameSet && !*reroot {
+		return fmt.Errorf("pan mv: nothing to change (give --disc, --name, and/or --reroot)")
+	}
+
+	t, err := scan(resolveRoot(*root), tree.ScanOpts{})
+	if err != nil {
+		return err
+	}
+	n, err := mustFind(t, code)
+	if err != nil {
+		return err
+	}
+
+	newDisc := n.Disc
+	if *disc != "" {
+		newDisc = classifyArg(*disc)
+	}
+	newName := n.Name
+	if nameSet {
+		if newName, err = prefix.Sanitize(*name, prefix.Opts{AllowSwedish: *swedish}); err != nil {
+			return fmt.Errorf("name %q: %w", *name, err)
+		}
+	}
+	newInherited := n.CurrentInherited()
+	if *reroot {
+		if n.Parent == nil {
+			return fmt.Errorf("pan mv --reroot: %q is a top-level node with no parent to reroot under", code)
+		}
+		newInherited = n.Parent.Code
+	}
+
+	plan, err := t.PlanRename(n, newInherited, newDisc, newName)
+	if err != nil {
+		return err
+	}
+	if plan.Empty() {
+		fmt.Println("(nothing to rename)")
+		return nil
+	}
+	fmt.Fprintln(os.Stderr, plan.String())
+	if *dryRun {
+		return nil
+	}
+	if err := plan.Apply(); err != nil {
+		return err
+	}
+	fmt.Printf("renamed %s → %s (%d path(s))\n", plan.OldCode, plan.NewCode, len(plan.Renames))
+	return nil
 }
 
 func cmdOnto(args []string) error {
