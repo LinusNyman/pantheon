@@ -40,3 +40,26 @@ func Sanitize(raw string, opts Opts) (string, error) {
 	}
 	return out, nil
 }
+
+// SanitizeFilename sanitizes a file basename while preserving a single
+// trailing extension, which is lowercased: "My Photo.JPG" → "my_photo.jpg".
+// The stem is run through Sanitize (SPEC §7). It is the in-package version of
+// the user's normalize_name shell helper. A leading dot (dotfile) is not
+// treated as an extension separator. Returns ErrEmpty if the stem sanitizes
+// away to nothing.
+func SanitizeFilename(basename string, opts Opts) (string, error) {
+	stem, ext := basename, ""
+	if i := strings.LastIndex(basename, "."); i > 0 {
+		stem, ext = basename[:i], basename[i+1:]
+	}
+	s, err := Sanitize(stem, opts)
+	if err != nil {
+		return "", err
+	}
+	if ext != "" {
+		if e, err := Sanitize(ext, opts); err == nil && e != "" {
+			return s + "." + e, nil
+		}
+	}
+	return s, nil
+}

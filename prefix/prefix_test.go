@@ -203,6 +203,31 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
+func TestSanitizeFilename(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"My Photo.JPG", "my_photo.jpg"},
+		{"Marcus' Meditations (notes).md", "marcus_meditations_notes.md"},
+		{"weird-name.TXT", "weird_name.txt"},
+		{"already_fine.md", "already_fine.md"},
+		{"no_extension_dir", "no_extension_dir"},
+		{"archive.tar.gz", "archivetar.gz"}, // ext is the last segment; dots in stem are stripped
+		{"asb_todo.md", "asb_todo.md"},
+	}
+	for _, tt := range tests {
+		got, err := SanitizeFilename(tt.in, Opts{})
+		if err != nil {
+			t.Errorf("SanitizeFilename(%q): %v", tt.in, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("SanitizeFilename(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestNextLetter(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -19,7 +19,7 @@ import (
 	"github.com/LinusNyman/pantheon/tree"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 const usage = `pan — the pantheon spine
 
@@ -32,6 +32,10 @@ Usage:
          [--kind letter|number|word] [--disc x] [--range A-B] [--meta] [--swedish]
   pan mv <code>                        rename a node, cascading to its whole subtree
          [--disc x] [--name n] [--reroot] [--dry-run]
+  pan place <file>...                  move prefixed files to their node dir
+         [--to <code>] [--dry-run]
+  pan sanitize <path>...               rename files/dirs to conforming names
+         [--dry-run] [--swedish]
   pan onto [code]                      the ontology table / one domain's lineage
   pan version
 
@@ -59,6 +63,10 @@ func main() {
 		err = cmdMk(args)
 	case "mv":
 		err = cmdMv(args)
+	case "place":
+		err = cmdPlace(args)
+	case "sanitize":
+		err = cmdSanitize(args)
 	case "onto":
 		err = cmdOnto(args)
 	case "version":
@@ -555,6 +563,114 @@ func cmdMv(args []string) error {
 		return err
 	}
 	fmt.Printf("renamed %s → %s (%d path(s))\n", plan.OldCode, plan.NewCode, len(plan.Renames))
+	return nil
+}
+
+// cmdPlace moves prefixed files into the node directory their name addresses.
+// With --to it forces a target node and prepends that node's prefix to any
+// file not already carrying it (subsuming the old prepend_files). It never
+// overwrites (Uniquify).
+func cmdPlace(args []string) error {
+	fs, root := newFlags("place")
+	to := fs.String("to", "", "force target node code; prepend its prefix if missing")
+	dryRun := fs.Bool("dry-run", false, "print moves without performing them")
+	pos := parseFlexible(fs, args)
+	if len(pos) == 0 {
+		return fmt.Errorf("usage: pan place <file>... [--to <code>]")
+	}
+	t, err := scan(resolveRoot(*root), tree.ScanOpts{})
+	if err != nil {
+		return err
+	}
+
+	var forced *tree.Node
+	if *to != "" {
+		if forced, err = mustFind(t, *to); err != nil {
+			return err
+		}
+	}
+
+	for _, file := range pos {
+		info, err := os.Stat(file)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return fmt.Errorf("%s is a directory; pan place moves files", file)
+		}
+		base := filepath.Base(file)
+
+		target := forced
+		if target == nil {
+			if target, err = t.NodeForFile(base); err != nil {
+				return err
+			}
+		} else {
+			base = ensurePrefixed(base, forced.Code)
+		}
+
+		dest := tree.Uniquify(filepath.Join(target.Path, base))
+		fmt.Printf("%s → %s\n", file, dest)
+		if !*dryRun {
+			if err := os.Rename(file, dest); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ensurePrefixed returns basename unchanged if it already carries code as its
+// working prefix, otherwise prepends "code_".
+func ensurePrefixed(basename, code string) string {
+	if tree.CodeOfFile(basename) == code {
+		return basename
+	}
+	return code + "_" + basename
+}
+
+// cmdSanitize renames existing files and directories to conforming names —
+// the in-tool version of the user's renamef/normalize_name. It changes only
+// the basename (Sanitize for dirs, SanitizeFilename for files), never moves
+// across directories, and never overwrites (Uniquify).
+func cmdSanitize(args []string) error {
+	fs, root := newFlags("sanitize")
+	_ = root // sanitize operates on given paths, not the volume root
+	dryRun := fs.Bool("dry-run", false, "print renames without performing them")
+	swedish := fs.Bool("swedish", false, "allow åäö")
+	pos := parseFlexible(fs, args)
+	if len(pos) == 0 {
+		return fmt.Errorf("usage: pan sanitize <path>...")
+	}
+	opts := prefix.Opts{AllowSwedish: *swedish}
+
+	for _, p := range pos {
+		info, err := os.Stat(p)
+		if err != nil {
+			return err
+		}
+		dir, base := filepath.Split(strings.TrimRight(p, string(os.PathSeparator)))
+		var clean string
+		if info.IsDir() {
+			clean, err = prefix.Sanitize(base, opts)
+		} else {
+			clean, err = prefix.SanitizeFilename(base, opts)
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", base, err)
+		}
+		if clean == base {
+			fmt.Printf("unchanged: %s\n", base)
+			continue
+		}
+		dest := tree.Uniquify(filepath.Join(dir, clean))
+		fmt.Printf("%s → %s\n", base, filepath.Base(dest))
+		if !*dryRun {
+			if err := os.Rename(p, dest); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
