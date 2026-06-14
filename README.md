@@ -18,7 +18,7 @@ their directory's code (`asb_todo.md`), and a node's metadata lives in
 | `prefix`   | parse / format / sanitize names; allocate discriminators    | none (pure) |
 | `tree`     | scan a root into a tree; resolve codes; report issues; atomic write | filesystem |
 | `ontology` | load *your* life-domain table from `<root>/_ontology.tsv`   | read only |
-| `cmd/pan`  | CLI: `tree` · `cd` · `resolve` · `doctor` · `mk` · `mv` · `onto` | — |
+| `cmd/pan`  | CLI: `tree` · `cd` · `resolve` · `doctor` · `mk` · `mv` · `place` · `sanitize` · `onto` | — |
 
 ## The `pan` CLI
 
@@ -30,6 +30,8 @@ pan doctor [code]          list grammar deviations (exit 1 if any)
 pan mk <parent> <name>     create a conforming child  [--kind|--disc|--range A-B|--meta]
 pan mv <code>              rename a node, cascading to its whole subtree
                            [--disc x] [--name n] [--reroot] [--dry-run]
+pan place <file>...        move prefixed files to their node dir  [--to <code>]
+pan sanitize <path>...     rename files/dirs to conforming names  [--dry-run]
 pan onto [code]            your ontology table / one domain's lineage
 ```
 
@@ -69,10 +71,11 @@ go install github.com/LinusNyman/pantheon/cmd/pan@latest
 
 ## Status
 
-**v0.2.0 — the spine is implemented and tested** (prefix, tree, ontology,
-`pan`), now including cascading rename (`pan mv`) and typeahead navigation
-(`pan cd`). `v1.0.0` follows once pensum has migrated onto it. Auto-placement
-(`pan place`) is still planned.
+**v0.3.0 — the spine is implemented and tested** (prefix, tree, ontology,
+`pan`), including cascading rename (`pan mv`), typeahead navigation (`pan cd`),
+auto-placement (`pan place`), and name sanitization (`pan sanitize`). `v1.0.0`
+follows once pensum has migrated onto it. A full tree re-prefixer (`pan
+conform`) is still planned.
 
 The full grammar specification and design docs are kept locally alongside the
 maintainer's volume; the package docs (`go doc`) document the public surface.
