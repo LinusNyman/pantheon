@@ -29,7 +29,7 @@ Usage:
   pan resolve <code|path>              code → path, or path → code
   pan doctor [code] [--json] [--files] list grammar deviations (exit 1 if any)
   pan mk <parent-code> <name>          create a conforming child dir
-         [--kind letter|number|word] [--disc x] [--range A-B] [--meta] [--swedish]
+         [--kind letter|index|number|word] [--disc x] [--range A-B] [--meta] [--swedish]
   pan mv <code>                        rename a node, cascading to its whole subtree
          [--disc x] [--name n] [--reroot] [--dry-run]
   pan place <file>...                  move prefixed files to their node dir
@@ -290,7 +290,7 @@ func cmdDoctor(args []string) error {
 
 func cmdMk(args []string) error {
 	fs, root := newFlags("mk")
-	kind := fs.String("kind", "letter", "discriminator kind: letter|number|word")
+	kind := fs.String("kind", "letter", "discriminator kind: letter|index|number|word")
 	disc := fs.String("disc", "", "explicit discriminator value")
 	rangeFlag := fs.String("range", "", "create numbered children A-B (e.g. 1-12); name optional")
 	meta := fs.Bool("meta", false, "also create the <code>__ meta dir")
@@ -365,6 +365,15 @@ func cmdMk(args []string) error {
 		if err != nil {
 			return err
 		}
+		d = prefix.Discriminator{Kind: prefix.Letter, Value: v, Padded: v}
+	case *kind == "index":
+		var taken []string
+		for _, c := range parent.Children {
+			if !c.Mismatched {
+				taken = append(taken, c.Disc.Value)
+			}
+		}
+		v := prefix.NextIndex(taken)
 		d = prefix.Discriminator{Kind: prefix.Letter, Value: v, Padded: v}
 	case *kind == "number":
 		next := 1

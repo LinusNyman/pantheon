@@ -256,6 +256,29 @@ func TestNextLetter(t *testing.T) {
 	}
 }
 
+func TestNextIndex(t *testing.T) {
+	tests := []struct {
+		taken []string
+		want  string
+	}{
+		{nil, "a"},
+		{[]string{"a"}, "b"},
+		{[]string{"a", "b", "c"}, "d"},
+		{[]string{"b", "a"}, "c"},         // input order does not matter
+		{[]string{"a", "c"}, "d"},         // monotonic: gap at "b" is not reused
+		{[]string{"z"}, "aa"},             // rolls over into two letters
+		{[]string{"z", "aa", "ab"}, "ac"}, // continues the two-letter run
+		{[]string{"az"}, "ba"},            // carry within two letters
+		{[]string{"zz"}, "aaa"},           // rolls over into three letters
+		{[]string{"3", "a", "b"}, "c"},    // non-index siblings ignored for max
+	}
+	for _, tt := range tests {
+		if got := NextIndex(tt.taken); got != tt.want {
+			t.Errorf("NextIndex(%v) = %q, want %q", tt.taken, got, tt.want)
+		}
+	}
+}
+
 func allLetters() []string {
 	var out []string
 	for _, r := range "abcdefghijklmnopqrstuvwxyz0123456789" {
